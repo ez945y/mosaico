@@ -13,7 +13,7 @@ use mosaicod_marshal as marshal;
 use mosaicod_store as store;
 
 /// Define sequence metadata type contaning json user metadata
-type SequenceMetadata = types::SequenceMetadata<marshal::JsonMetadataBlob>;
+type FacadeSequenceMetadata = types::SequenceMetadata<marshal::JsonMetadataBlob>;
 
 pub struct FacadeSequence {
     pub locator: types::SequenceResourceLocator,
@@ -56,8 +56,8 @@ impl FacadeSequence {
     /// the repo transaction is rolled back, restoring the previous state.
     pub async fn create(
         &self,
-        metadata: Option<SequenceMetadata>,
-    ) -> Result<types::ResourceId, FacadeError> {
+        metadata: Option<FacadeSequenceMetadata>,
+    ) -> Result<types::Identifiers, FacadeError> {
         let mut tx = self.repo.transaction().await?;
 
         let mut record = repo::SequenceRecord::new(self.locator.name());
@@ -78,55 +78,12 @@ impl FacadeSequence {
     }
 
     /// Read the repository record for this sequence. If no record is found an error is returned.
-    pub async fn resource_id(&self) -> Result<types::ResourceId, FacadeError> {
+    pub async fn resource_id(&self) -> Result<types::Identifiers, FacadeError> {
         let mut cx = self.repo.connection();
 
         let record = repo::sequence_find_by_locator(&mut cx, &self.locator).await?;
 
         Ok(record.into())
-    }
-
-    pub async fn is_locked(&self) -> Result<bool, FacadeError> {
-        let mut cx = self.repo.connection();
-
-        let record = repo::sequence_find_by_locator(&mut cx, &self.locator).await?;
-
-        Ok(record.is_locked())
-    }
-
-    /// Permanently locks the sequence, preventing any new topics from being added.
-    ///
-    /// Once a sequence is locked, it becomes immutable — no further topics can be
-    /// appended or modified under it. This action is **irreversible**, as there is
-    /// currently no API or mechanism to unlock a sequence.
-    ///
-    /// A sequence can be locked only if all the associated topics are locked, calling this
-    /// function on a sequence with an unlocked topic returns an error.
-    ///
-    /// Calling lock on a locked sequence returns a [`HandleError::SequenceLocked`] error.
-    pub async fn lock(&self) -> Result<(), FacadeError> {
-        let mut tx = self.repo.transaction().await?;
-
-        // check that the sequence is currently unlocked
-        let record = repo::sequence_find_by_locator(&mut tx, &self.locator).await?;
-        if record.is_locked() {
-            return Err(FacadeError::SequenceLocked);
-        }
-
-        // check if all associated topics are locked
-        let topics = repo::sequence_find_all_topic_names(&mut tx, &self.locator).await?;
-        for topic_loc in topics {
-            let trecord = repo::topic_find_by_locator(&mut tx, &topic_loc).await?;
-            if !trecord.is_locked() {
-                return Err(FacadeError::TopicUnlocked);
-            }
-        }
-
-        repo::sequence_lock(&mut tx, &self.locator).await?;
-
-        tx.commit().await?;
-
-        Ok(())
     }
 
     /// Add a notification to the sequence
@@ -138,7 +95,7 @@ impl FacadeSequence {
         let mut tx = self.repo.transaction().await?;
 
         let record = repo::sequence_find_by_locator(&mut tx, &self.locator).await?;
-        let notify = repo::SequenceNotify::new(record.sequence_id, ntype, Some(msg));
+        let notify = repo::SequenceNotifyRecord::new(record.sequence_id, ntype, Some(msg));
         let notify = repo::sequence_notify_create(&mut tx, &notify).await?;
 
         tx.commit().await?;
@@ -171,8 +128,26 @@ impl FacadeSequence {
         Ok(())
     }
 
+    /// Creates a new update session for a sequence
+    pub async fn session(&self) -> Result<types::Identifiers, FacadeError> {
+        let mut tx = self.repo.transaction().await?;
+
+        let sequence = repo::sequence_lookup(
+            &mut tx,
+            &types::ResourceLookup::Locator(self.locator.to_string()),
+        )
+        .await?;
+
+        let session = repo::SessionRecord::new(sequence.sequence_id);
+        let session = repo::session_create(&mut tx, &session).await?;
+
+        tx.commit().await?;
+
+        Ok(session.into())
+    }
+
     /// Read the metadata from the store and returns an `HashMap` containing all the metadata
-    pub async fn metadata(&self) -> Result<SequenceMetadata, FacadeError> {
+    pub async fn metadata(&self) -> Result<FacadeSequenceMetadata, FacadeError> {
         let path = self.locator.path_metadata();
         let bytes = self.store.read_bytes(&path).await?;
 
@@ -181,18 +156,21 @@ impl FacadeSequence {
         Ok(data.into())
     }
 
-    async fn metadata_write_to_store(&self, metadata: SequenceMetadata) -> Result<(), FacadeError> {
+    async fn metadata_write_to_store(
+        &self,
+        metadata: FacadeSequenceMetadata,
+    ) -> Result<(), FacadeError> {
         let path = self.locator.path_metadata();
 
-        trace!("converting metadata to bytes");
+        trace!("converting sequence metadata to bytes");
         let json_mdata = marshal::JsonSequenceMetadata::from(metadata);
         let bytes: Vec<u8> = json_mdata.try_into()?;
 
-        trace!("writing metadata to store");
+        trace!(
+            "writing sequence metadata `{}` to store",
+            &path.to_string_lossy()
+        );
         self.store.write_bytes(&path, bytes).await?;
-
-        trace!("wiring metadata to database");
-        // ...
 
         Ok(())
     }
@@ -215,11 +193,6 @@ impl FacadeSequence {
     pub async fn delete(self) -> Result<(), FacadeError> {
         let mut tx = self.repo.transaction().await?;
 
-        let srecord = repo::sequence_find_by_locator(&mut tx, &self.locator).await?;
-        if srecord.is_locked() {
-            return Err(FacadeError::SequenceLocked);
-        }
-
         // Retrieve topics data and deletes it
         let topics = self.topic_list().await?;
         for topic_loc in topics {
@@ -232,7 +205,7 @@ impl FacadeSequence {
         }
 
         // Delete sequence data
-        repo::sequence_delete_unlocked(&mut tx, &self.locator).await?;
+        repo::sequence_delete(&mut tx, &self.locator, types::allow_data_loss()).await?;
         self.store.delete_recursive(self.locator.name()).await?;
 
         tx.commit().await?;
@@ -253,8 +226,61 @@ impl FacadeSequence {
 
         Ok(types::SequenceSystemInfo {
             total_size_bytes: total_size,
-            is_locked: record.is_locked(),
             created_datetime: record.creation_timestamp().into(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use types::{MetadataBlob, Resource};
+
+    #[sqlx::test(migrator = "repo::testing::MIGRATOR")]
+    fn sequence_creation(pool: sqlx::Pool<repo::Database>) -> sqlx::Result<()> {
+        let repo = repo::testing::Repository::new(pool);
+        let store = store::testing::Store::new_random_on_tmp().unwrap();
+        let fsequence = FacadeSequence::new(
+            "test_sequence".to_string(),
+            (*store).clone(),
+            (*repo).clone(),
+        );
+
+        let mdata = r#"{
+            "driver" : "john",
+            "weather": "sunny"
+        }"#;
+        dbg!(&mdata);
+        let mdata =
+            FacadeSequenceMetadata::new(marshal::JsonMetadataBlob::try_from_str(mdata).unwrap());
+
+        fsequence
+            .create(Some(mdata)) // <-- testing this
+            .await
+            .expect("Error creating sequence");
+
+        let _ = fsequence.session().await.unwrap();
+
+        // Check if sequence was created
+        let mut cx = repo.connection();
+        let sequence = repo::sequence_find_by_locator(&mut cx, &fsequence.locator)
+            .await
+            .expect("Unable to find the created sequence");
+
+        // Check repo user metadata
+        let user_mdata = sequence
+            .user_metadata()
+            .expect("Unable to find user metadata in repo record");
+        assert_eq!(user_mdata["driver"].as_str().unwrap(), "john");
+        assert_eq!(user_mdata["weather"].as_str().unwrap(), "sunny");
+
+        // Check sequence locator
+        assert_eq!(
+            fsequence.locator.path().to_string_lossy(),
+            sequence.locator_name
+        );
+
+        Ok(())
     }
 }

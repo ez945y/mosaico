@@ -21,13 +21,13 @@ pub async fn sequence_find_by_id(
 /// Find a sequence given its uuid.
 pub async fn sequence_find_by_uuid(
     exe: &mut impl repo::AsExec,
-    uuid: &uuid::Uuid,
+    uuid: &types::Uuid,
 ) -> Result<sql_models::SequenceRecord, Error> {
     trace!("searching sequence by uuid `{}`", uuid);
     let res = sqlx::query_as!(
         sql_models::SequenceRecord,
         "SELECT * FROM sequence_t WHERE sequence_uuid=$1",
-        uuid
+        uuid.as_ref()
     )
     .fetch_one(exe.as_exec())
     .await?;
@@ -39,7 +39,7 @@ pub async fn sequence_find_by_locator(
     exe: &mut impl repo::AsExec,
     loc: &types::SequenceResourceLocator,
 ) -> Result<sql_models::SequenceRecord, Error> {
-    trace!("searching by name `{}`", loc);
+    trace!("searching by locator `{}`", loc);
     let res = sqlx::query_as!(
         sql_models::SequenceRecord,
         "SELECT * FROM sequence_t WHERE locator_name=$1",
@@ -50,11 +50,27 @@ pub async fn sequence_find_by_locator(
     Ok(res)
 }
 
+/// Find a sequence by resource lookup
+pub async fn sequence_lookup(
+    exec: &mut impl repo::AsExec,
+    resource_lookup: &types::ResourceLookup,
+) -> Result<repo::SequenceRecord, Error> {
+    match resource_lookup {
+        types::ResourceLookup::Id(id) => repo::sequence_find_by_id(exec, *id).await,
+        types::ResourceLookup::Uuid(uuid) => repo::sequence_find_by_uuid(exec, uuid).await,
+        types::ResourceLookup::Locator(locator) => {
+            // (cabba) FIXME: we need to find a way to avoid locator copy
+            let locator = locator.to_owned().into();
+            repo::sequence_find_by_locator(exec, &locator).await
+        }
+    }
+}
+
 pub async fn sequence_find_all_topic_names(
     exe: &mut impl repo::AsExec,
     loc: &types::SequenceResourceLocator,
 ) -> Result<Vec<types::TopicResourceLocator>, Error> {
-    trace!("searching topic locators by `{}`", loc);
+    trace!("searching topic locators by sequence `{}`", loc);
     let res = sqlx::query_scalar!(
         r#"
         SELECT topic.locator_name
@@ -84,23 +100,6 @@ pub async fn sequence_find_all(
     )
 }
 
-/// Deletes a sequence record from the repository **only if it is unlocked**.
-///
-/// If the sequence is locked or does not exist, the operation has no effect.
-pub async fn sequence_delete_unlocked(
-    exe: &mut impl repo::AsExec,
-    loc: &types::SequenceResourceLocator,
-) -> Result<(), repo::Error> {
-    trace!("deleting unlocked `{}`", loc);
-    sqlx::query!(
-        "DELETE FROM sequence_t WHERE locator_name=$1 AND locked=FALSE",
-        loc.name()
-    )
-    .execute(exe.as_exec())
-    .await?;
-    Ok(())
-}
-
 /// Deletes a sequence record from the repository by its name, **bypassing any lock state**.
 ///
 /// This function requires a [`DataLossToken`] because it permanently removes the record
@@ -127,39 +126,20 @@ pub async fn sequence_create(
         sql_models::SequenceRecord,
         r#"
             INSERT INTO sequence_t
-                (sequence_uuid, locator_name, locked, creation_unix_tstamp, user_metadata) 
+                (sequence_uuid, locator_name, creation_unix_tstamp, user_metadata) 
             VALUES 
-                ($1, $2, $3, $4, $5) 
+                ($1, $2, $3, $4) 
             RETURNING 
                 *
     "#,
         record.sequence_uuid,
         record.locator_name,
-        record.locked,
         record.creation_unix_tstamp,
         record.user_metadata
     )
     .fetch_one(exe.as_exec())
     .await?;
     Ok(res)
-}
-
-pub async fn sequence_lock(
-    exe: &mut impl repo::AsExec,
-    loc: &types::SequenceResourceLocator,
-) -> Result<(), Error> {
-    trace!("locking `{}`", loc);
-    sqlx::query!(
-        r#"
-            UPDATE sequence_t
-            SET locked = TRUE 
-            WHERE locator_name = $1
-    "#,
-        loc.name()
-    )
-    .execute(exe.as_exec())
-    .await?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -179,7 +159,6 @@ mod tests {
         assert_eq!(record.sequence_uuid, rrecord.sequence_uuid);
         assert_eq!(record.locator_name, rrecord.locator_name);
         assert_eq!(record.creation_unix_tstamp, rrecord.creation_unix_tstamp);
-        assert_eq!(record.locked, rrecord.locked);
 
         Ok(())
     }

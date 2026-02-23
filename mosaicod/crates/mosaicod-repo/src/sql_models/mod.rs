@@ -3,8 +3,8 @@
 mod data_catalog;
 pub use data_catalog::*;
 
-mod layers;
-pub use layers::*;
+mod layer_record;
+pub use layer_record::*;
 
 mod notifies;
 pub use notifies::*;
@@ -14,6 +14,9 @@ pub use sequence_record::*;
 
 mod topic_record;
 pub use topic_record::*;
+
+mod session_record;
+pub use session_record::*;
 
 mod pg_queries;
 pub use pg_queries::*;

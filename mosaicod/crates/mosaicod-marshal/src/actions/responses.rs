@@ -4,17 +4,25 @@ use serde::{Deserialize, Serialize};
 
 use mosaicod_core::types::{self, Resource};
 
-/// Generic response message used to provide to clients the key
+/// Generic response message used to provide to clients the a unique key
 /// of a resource
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ResourceKey {
-    pub key: String,
+pub struct ResourceUuid {
+    pub uuid: String,
 }
 
-impl From<types::ResourceId> for ResourceKey {
-    fn from(value: types::ResourceId) -> Self {
+impl From<types::Identifiers> for ResourceUuid {
+    fn from(value: types::Identifiers) -> Self {
         Self {
-            key: value.uuid.to_string(),
+            uuid: value.uuid.to_string(),
+        }
+    }
+}
+
+impl From<types::Uuid> for ResourceUuid {
+    fn from(value: types::Uuid) -> Self {
+        Self {
+            uuid: value.to_string(),
         }
     }
 }
@@ -48,8 +56,6 @@ pub struct SequenceSystemInfo {
     /// Total size in bytes of the data.
     /// This values includes additional system files.
     pub total_size_bytes: usize,
-    /// True if sequence is locked
-    pub is_locked: bool,
     /// Datetime of the sequence creation
     pub created_datetime: String,
 }
@@ -58,7 +64,6 @@ impl From<types::SequenceSystemInfo> for SequenceSystemInfo {
     fn from(value: types::SequenceSystemInfo) -> Self {
         Self {
             total_size_bytes: value.total_size_bytes,
-            is_locked: value.is_locked,
             created_datetime: value.created_datetime.to_string(),
         }
     }

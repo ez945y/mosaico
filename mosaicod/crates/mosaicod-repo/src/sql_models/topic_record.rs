@@ -9,6 +9,7 @@ pub struct TopicRecord {
     pub topic_uuid: uuid::Uuid,
     pub locator_name: String,
     pub sequence_id: i32,
+    pub session_id: i32,
     pub ontology_tag: Option<String>,
 
     pub(super) locked: bool,
@@ -22,21 +23,22 @@ pub struct TopicRecord {
     pub(super) creation_unix_tstamp: i64,
 }
 
-impl From<TopicRecord> for types::ResourceId {
+impl From<TopicRecord> for types::Identifiers {
     fn from(value: TopicRecord) -> Self {
         Self {
             id: value.topic_id,
-            uuid: value.topic_uuid,
+            uuid: value.topic_uuid.into(),
         }
     }
 }
 
 impl TopicRecord {
-    pub fn new(name: &str, sequence_id: i32) -> Self {
+    pub fn new(name: &str, sequence_id: i32, session_id: i32) -> Self {
         Self {
             topic_id: repo::UNREGISTERED,
-            topic_uuid: uuid::Uuid::new_v4(),
-            sequence_id,
+            topic_uuid: types::Uuid::new().into(),
+            sequence_id: sequence_id,
+            session_id: session_id,
             locator_name: name.to_owned(),
             locked: false,
             ontology_tag: None,

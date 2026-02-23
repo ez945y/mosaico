@@ -13,7 +13,7 @@ use mosaicod_store as store;
 use std::sync::Arc;
 
 /// Define topic metadata type contaning JSON user metadata
-type TopicMetadata = types::TopicMetadata<marshal::JsonMetadataBlob>;
+type FacadeTopicMetadata = types::TopicMetadata<marshal::JsonMetadataBlob>;
 
 pub struct FacadeTopic {
     pub locator: types::TopicResourceLocator,
@@ -31,9 +31,14 @@ impl FacadeTopic {
         }
     }
 
-    // Returns the path were the topic is located
+    /// Returns the path were the topic is located
     pub fn path(&self) -> &str {
-        self.locator.name().as_str()
+        self.locator.name()
+    }
+
+    /// Return the inner locator and consumes the facade
+    pub fn into_inner(self) -> types::TopicResourceLocator {
+        self.locator
     }
 
     /// Creates a new repository entry for this topic.
@@ -42,26 +47,30 @@ impl FacadeTopic {
     /// the repository transaction is rolled back, restoring the previous state.
     pub async fn create(
         &self,
-        sequence: &uuid::Uuid,
-        metadata: Option<TopicMetadata>,
-    ) -> Result<types::ResourceId, FacadeError> {
+        session: &types::Uuid,
+        metadata: Option<FacadeTopicMetadata>,
+    ) -> Result<types::Identifiers, FacadeError> {
         let mut tx = self.repo.transaction().await?;
 
-        // Ensure that a sequence with th provided id is available and is unlocked
-        let srecord = repo::sequence_find_by_uuid(&mut tx, sequence).await?;
-        if srecord.is_locked() {
-            return Err(FacadeError::SequenceLocked);
+        // Ensure that uuid points to a unlocked session
+        let ses_rec = repo::session_find_by_uuid(&mut tx, session).await?;
+        if ses_rec.is_locked() {
+            return Err(FacadeError::SessionLocked);
         }
 
-        let sloc = types::SequenceResourceLocator::from(&srecord.locator_name);
-
-        // Ensure that this topic is child of the provided sequence, i.e. they are related with the same
-        // name structure
-        if !self.locator.is_sub_resource(&sloc) {
+        // Find parent sequence and ensure that this topic is child of the provided
+        // sequence, i.e. they are related with the same name structure
+        let seq_rec = repo::sequence_find_by_id(&mut tx, ses_rec.sequence_id).await?;
+        let seq_loc = types::SequenceResourceLocator::from(&seq_rec.locator_name);
+        if !self.locator.is_sub_resource(&seq_loc) {
             return Err(FacadeError::Unauthorized);
         }
 
-        let mut record = repo::TopicRecord::new(self.locator.name(), srecord.sequence_id);
+        let mut record = repo::TopicRecord::new(
+            self.locator.name(), //
+            seq_rec.sequence_id,
+            ses_rec.session_id,
+        );
 
         if let Some(metadata) = &metadata {
             record = record
@@ -95,7 +104,7 @@ impl FacadeTopic {
     ///
     /// If a record with the same name already exists, the operation fails and
     /// the repository transaction is rolled back, restoring the previous state.
-    pub async fn update(&self, metadata: TopicMetadata) -> Result<(), FacadeError> {
+    pub async fn update(&self, metadata: FacadeTopicMetadata) -> Result<(), FacadeError> {
         let mut tx = self.repo.transaction().await?;
 
         // find topic record to check that upload is not completed and is still prossible
@@ -103,12 +112,6 @@ impl FacadeTopic {
         let record = repo::topic_find_by_locator(&mut tx, &self.locator).await?;
         if record.is_locked() {
             return Err(FacadeError::TopicLocked);
-        }
-
-        // check if parent sequenc is locked
-        let sequence = repo::sequence_find_by_id(&mut tx, record.sequence_id).await?;
-        if sequence.is_locked() {
-            return Err(FacadeError::SequenceLocked);
         }
 
         repo::topic_update_user_metadata(
@@ -139,7 +142,7 @@ impl FacadeTopic {
     }
 
     /// Read the repository record for this sequence. If no record is found an error is returned.
-    pub async fn resource_id(&self) -> Result<types::ResourceId, FacadeError> {
+    pub async fn resource_id(&self) -> Result<types::Identifiers, FacadeError> {
         let mut cx = self.repo.connection();
 
         trace!("searching for `{}`", self.locator);
@@ -189,7 +192,7 @@ impl FacadeTopic {
     /// # Errors
     ///
     /// Returns [`HandleError::ReadError`] if reading or deserializing fails.
-    pub async fn metadata(&self) -> Result<TopicMetadata, FacadeError> {
+    pub async fn metadata(&self) -> Result<FacadeTopicMetadata, FacadeError> {
         let path = self.locator.path_metadata();
         let bytes = self.store.read_bytes(path).await?;
 
@@ -239,7 +242,10 @@ impl FacadeTopic {
     /// # Errors
     ///
     /// Returns [`HandleError::NotFound`] or [`HandleError::WriteError`] if serialization or writing fails.
-    async fn metadata_write_to_store(&self, metadata: TopicMetadata) -> Result<(), FacadeError> {
+    async fn metadata_write_to_store(
+        &self,
+        metadata: FacadeTopicMetadata,
+    ) -> Result<(), FacadeError> {
         trace!("writing metadata to store to `{}`", self.locator);
         let path = self.locator.path_metadata();
 
@@ -320,11 +326,10 @@ impl FacadeTopic {
     pub async fn delete(self, allowed_data_loss: types::DataLossToken) -> Result<(), FacadeError> {
         let mut tx = self.repo.transaction().await?;
 
-        // allowed since this function is unsafe itself
-        repo::topic_delete(&mut tx, &self.locator, allowed_data_loss).await?;
-
-        // Delete files
+        // Delete at forst the data and after that the record on db,
+        // so if the delete procedure fails i can retry again against the database record
         self.store.delete_recursive(&self.path()).await?;
+        repo::topic_delete(&mut tx, &self.locator, allowed_data_loss).await?;
 
         tx.commit().await?;
 
@@ -340,7 +345,7 @@ impl FacadeTopic {
         let mut tx = self.repo.transaction().await?;
 
         let record = repo::topic_find_by_locator(&mut tx, &self.locator).await?;
-        let notify = repo::TopicNotify::new(record.topic_id, ntype, Some(msg));
+        let notify = repo::TopicNotifyRecord::new(record.topic_id, ntype, Some(msg));
         let notify = repo::topic_notify_create(&mut tx, &notify).await?;
 
         tx.commit().await?;
