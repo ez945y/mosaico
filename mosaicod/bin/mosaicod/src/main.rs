@@ -7,7 +7,7 @@ use clap::{Args, Parser, Subcommand};
 use dotenv::dotenv;
 use log::{debug, error, info, trace, warn};
 use mosaicod_core::params;
-use mosaicod_repo as repo;
+use mosaicod_db as db;
 use mosaicod_server as server;
 use mosaicod_store as store;
 use std::{env, sync::Arc, thread, time::Instant};
@@ -43,7 +43,7 @@ enum Commands {
 
 #[derive(Debug)]
 struct Variables {
-    repository_db_url: url::Url,
+    database_url: url::Url,
 }
 
 fn init_logger() {
@@ -64,10 +64,10 @@ fn load_env_variables() -> Result<Variables, Box<dyn std::error::Error>> {
         );
     }
 
-    let repository_db_url: String = params::require_env_var("MOSAICO_REPOSITORY_DB_URL")?;
-    let repository_db_url: url::Url = repository_db_url.parse()?;
+    let database_url: String = params::require_env_var("MOSAICO_DATABASE_URL")?;
+    let database_url: url::Url = database_url.parse()?;
 
-    let vars = Variables { repository_db_url };
+    let vars = Variables { database_url };
 
     debug!("{:#?}", params::configurables());
     debug!("{:#?}", vars);
@@ -110,8 +110,8 @@ fn run(startup_time: &Instant) -> Result<(), Box<dyn std::error::Error>> {
                 args.host,
                 args.port,
                 store,
-                repo::Config {
-                    db_url: vars.repository_db_url.clone(),
+                db::Config {
+                    db_url: vars.database_url.clone(),
                 },
             );
 

@@ -1,11 +1,11 @@
 #![allow(unused_crate_dependencies)]
 
+use mosaicod_db as db;
 use mosaicod_ext as ext;
-use mosaicod_repo as repo;
 use tests::{self, actions, common};
 
-#[sqlx::test(migrator = "mosaicod_repo::testing::MIGRATOR")]
-async fn sequence_create(pool: sqlx::Pool<repo::Database>) -> sqlx::Result<()> {
+#[sqlx::test(migrator = "mosaicod_db::testing::MIGRATOR")]
+async fn sequence_create(pool: sqlx::Pool<db::DatabaseType>) -> sqlx::Result<()> {
     let port = common::random_port();
 
     let server = common::Server::new(common::HOST, port, pool).await;
@@ -18,8 +18,8 @@ async fn sequence_create(pool: sqlx::Pool<repo::Database>) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "mosaicod_repo::testing::MIGRATOR")]
-async fn session_create(pool: sqlx::Pool<repo::Database>) -> sqlx::Result<()> {
+#[sqlx::test(migrator = "mosaicod_db::testing::MIGRATOR")]
+async fn session_create(pool: sqlx::Pool<db::DatabaseType>) -> sqlx::Result<()> {
     let port = common::random_port();
 
     let server = common::Server::new(common::HOST, port, pool).await;
@@ -35,8 +35,8 @@ async fn session_create(pool: sqlx::Pool<repo::Database>) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "mosaicod_repo::testing::MIGRATOR")]
-async fn topic_create(pool: sqlx::Pool<repo::Database>) -> sqlx::Result<()> {
+#[sqlx::test(migrator = "mosaicod_db::testing::MIGRATOR")]
+async fn topic_create(pool: sqlx::Pool<db::DatabaseType>) -> sqlx::Result<()> {
     let port = common::random_port();
 
     let server = common::Server::new(common::HOST, port, pool).await;
@@ -54,8 +54,8 @@ async fn topic_create(pool: sqlx::Pool<repo::Database>) -> sqlx::Result<()> {
     Ok(())
 }
 
-#[sqlx::test(migrator = "mosaicod_repo::testing::MIGRATOR")]
-async fn do_put(pool: sqlx::Pool<repo::Database>) {
+#[sqlx::test(migrator = "mosaicod_db::testing::MIGRATOR")]
+async fn do_put(pool: sqlx::Pool<db::DatabaseType>) {
     let port = common::random_port();
 
     let server = common::Server::new(common::HOST, port, pool).await;
@@ -74,15 +74,15 @@ async fn do_put(pool: sqlx::Pool<repo::Database>) {
     let response = actions::do_put(&mut client, &uuid, "test_sequence/my_topic", batches).await;
 
     let mut response_reader = response.into_inner();
-    while let Some(_) = response_reader.message().await.unwrap() {
+    if response_reader.message().await.unwrap().is_some() {
         panic!("Received a not-empty response!");
     }
 
     server.shutdown().await;
 }
 
-#[sqlx::test(migrator = "mosaicod_repo::testing::MIGRATOR")]
-async fn session_finalize(pool: sqlx::Pool<repo::Database>) {
+#[sqlx::test(migrator = "mosaicod_db::testing::MIGRATOR")]
+async fn session_finalize(pool: sqlx::Pool<db::DatabaseType>) {
     let port = common::random_port();
 
     let server = common::Server::new(common::HOST, port, pool).await;
@@ -102,7 +102,7 @@ async fn session_finalize(pool: sqlx::Pool<repo::Database>) {
     let response = actions::do_put(&mut client, &uuid, "test_sequence/my_topic", batches).await;
 
     let mut response_reader = response.into_inner();
-    while let Some(_) = response_reader.message().await.unwrap() {
+    if response_reader.message().await.unwrap().is_some() {
         panic!("Received a not-empty response!");
     }
 
@@ -111,8 +111,8 @@ async fn session_finalize(pool: sqlx::Pool<repo::Database>) {
     server.shutdown().await;
 }
 
-#[sqlx::test(migrator = "mosaicod_repo::testing::MIGRATOR")]
-async fn session_abort(pool: sqlx::Pool<repo::Database>) {
+#[sqlx::test(migrator = "mosaicod_db::testing::MIGRATOR")]
+async fn session_abort(pool: sqlx::Pool<db::DatabaseType>) {
     let port = common::random_port();
 
     let server = common::Server::new(common::HOST, port, pool).await;
@@ -131,8 +131,7 @@ async fn session_abort(pool: sqlx::Pool<repo::Database>) {
 
     let response = actions::do_put(&mut client, &uuid, "test_sequence/my_topic", batches).await;
 
-    let mut response_reader = response.into_inner();
-    while let Some(_) = response_reader.message().await.unwrap() {
+    if response.into_inner().message().await.unwrap().is_some() {
         panic!("Received a not-empty response!");
     }
 
