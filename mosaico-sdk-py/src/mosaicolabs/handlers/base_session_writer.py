@@ -1,8 +1,8 @@
 """
-Sequence Writing Module.
+Session (Base) Writing Module.
 
-This module acts as the central controller for writing a sequence of data.
-It manages the lifecycle of the sequence on the server (Create -> Write -> Finalize)
+This module acts as the central controller for writing a session in an existing sequence.
+It manages the lifecycle of the session on the server (Create -> Write -> Finalize/Abort)
 and distributes client resources (Connections, Executors) to individual Topics.
 """
 
@@ -56,18 +56,18 @@ class BaseSessionWriter(ABC):
         logger: Logger,
     ):
         """
-        Internal constructor for SequenceWriter.
+        Internal constructor for BaseSessionWriter.
 
-        **Do not call this directly.** Users must call
-        [`MosaicoClient.sequence_create()`][mosaicolabs.comm.MosaicoClient.sequence_create]
-        to obtain an initialized writer.
+        **Do not call this directly.** This is an internal base class for the
+        [`SequenceWriter`][mosaicolabs.handlers.SequenceWriter] class.
+        Users must call [`MosaicoClient.sequence_create()`][mosaicolabs.comm.MosaicoClient.sequence_create]
+        to obtain a user-facing writer instance.
 
         Args:
-            sequence_name: Unique name for the new sequence.
+            sequence_name: Unique name for the sequence corresponding to the session.
             client: The primary control FlightClient.
             connection_pool: Shared pool of data connections for parallel writing.
             executor_pool: Shared pool of thread executors for asynchronous I/O.
-            metadata: User-defined metadata dictionary.
             config: Operational configuration (e.g., error policies, batch sizes).
         """
         self._name: str = sequence_name
@@ -100,7 +100,7 @@ class BaseSessionWriter(ABC):
         Initializes a new session on the existing remote resource.
 
         Args:
-            sequence_name: The name of the sequence to create.
+            sequence_name: The name of the sequence owning the data pushed in this session.
         """
 
         # Send the `SESSION_CREATE` action, to start a new session on the existing remote resource.
@@ -114,7 +114,7 @@ class BaseSessionWriter(ABC):
         )
         if act_resp is None:
             raise Exception(
-                f"Action '{FlightAction.SESSION_CREATE.value}' returned no response."
+                f"Action '{FlightAction.SESSION_CREATE.value}' returned no response, sequence '{sequence_name}'."
             )
 
         self._uuid = act_resp.uuid
@@ -233,6 +233,14 @@ class BaseSessionWriter(ABC):
         - If successful: Finalizes all topics and the session itself.
         - If error: Finalizes topics in error mode and either Aborts (Delete)
           or Reports the error based on `WriterConfig.on_error`.
+
+        Args:
+            exc_type: The type of the exception.
+            exc_val: The exception value.
+            exc_tb: The traceback.
+
+        Returns:
+            None: prevents exception suppression
         """
         return self._on_context_exit(
             exc_type=exc_type,

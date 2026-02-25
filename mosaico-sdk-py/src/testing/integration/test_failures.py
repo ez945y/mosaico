@@ -45,8 +45,6 @@ def test_sequence_writer_not_in_context(_client: MosaicoClient):
     ):
         swriter._check_entered()
 
-    # free resources
-    _client.sequence_delete("new-sequence")
     _client.close()
 
 
@@ -131,7 +129,6 @@ def test_topic_invalid_char_in_name(_client: MosaicoClient, non_alphanum: str):
     with pytest.raises(ValueError, match="does not begin with a letter or a number"):
         with _client.sequence_create("new-sequence", {}) as sw:
             sw.topic_create(invalid_topic_name, {}, IMU)
-    _client.sequence_delete("new-sequence")
 
     invalid_topic_name = f"invalid{non_alphanum}topic-name"
 
@@ -140,7 +137,6 @@ def test_topic_invalid_char_in_name(_client: MosaicoClient, non_alphanum: str):
     with pytest.raises(ValueError, match="Topic name contains invalid characters"):
         with _client.sequence_create("new-sequence", {}) as sw:
             sw.topic_create(invalid_topic_name, {}, IMU)
-    _client.sequence_delete("new-sequence")
 
     invalid_topic_name = f"/invalid{non_alphanum}topic-name"
 
@@ -149,7 +145,6 @@ def test_topic_invalid_char_in_name(_client: MosaicoClient, non_alphanum: str):
     with pytest.raises(ValueError, match="Topic name contains invalid characters"):
         with _client.sequence_create("new-sequence", {}) as sw:
             sw.topic_create(invalid_topic_name, {}, IMU)
-    _client.sequence_delete("new-sequence")
 
     # free resources
     _client.close()
@@ -163,14 +158,12 @@ def test_topic_empty_name(_client: MosaicoClient):
     ):  # triggers pathlib.path exception
         with _client.sequence_create("new-sequence", {}) as sw:
             sw.topic_create("", {}, IMU)
-    _client.sequence_delete("new-sequence")
 
     with pytest.raises(
         ValueError, match="does not begin with a letter or a number"
     ):  # triggers pathlib.path exception
         with _client.sequence_create("new-sequence", {}) as sw:
             sw.topic_create("/", {}, IMU)
-    _client.sequence_delete("new-sequence")
 
     # free resources
     _client.close()
@@ -184,7 +177,6 @@ def test_topic_startswith_double_slash(_client: MosaicoClient):
     ):  # triggers pathlib.path exception
         with _client.sequence_create("new-sequence", {}) as sw:
             sw.topic_create("//invalid/topic/name", {}, IMU)
-    _client.sequence_delete("new-sequence")
 
     # free resources
     _client.close()
@@ -232,8 +224,6 @@ def test_topic_push_not_serializable(_client: MosaicoClient):
             # Generate a specific Exception which is not raised by above functions
             # (we want to be sure the test runs till here)
             raise ChildProcessError
-    # Free the sequence created
-    _client.sequence_delete("test-seq-not-seerializable")
     # free resources
     _client.close()
 

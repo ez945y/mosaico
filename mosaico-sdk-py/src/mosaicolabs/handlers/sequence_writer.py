@@ -11,7 +11,7 @@ import pyarrow.flight as fl
 
 from .base_session_writer import BaseSessionWriter
 from .config import WriterConfig
-from .helpers import _validate_sequence_name
+from .helpers import _validate_sequence_name, _make_exception
 from .topic_writer import TopicWriter
 from ..comm.do_action import _do_action
 from ..comm.connection import _ConnectionPool
@@ -19,6 +19,7 @@ from ..comm.executor_pool import _ExecutorPool
 from ..enum import FlightAction, SequenceStatus
 from ..logging_config import get_logger
 from ..models import Serializable
+from ..enum import OnErrorPolicy
 
 # Set the hierarchical logger
 logger = get_logger(__name__)
@@ -157,6 +158,53 @@ class SequenceWriter(BaseSessionWriter):
         super()._init_session(self._name)
 
     # NOTE: No need of overriding `_on_context_exit` as default behavior is ok.
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """
+        Override the __exit__ method to handle exceptions and apply `on_error` policies.
+
+        Args:
+            exc_type: The type of the exception.
+            exc_value: The exception value.
+            traceback: The traceback.
+
+        Returns:
+            The return value of the base class __exit__ method.
+        """
+
+        # Run base session cleanup
+        base_exit_ret = super().__exit__(exc_type, exc_value, traceback)
+
+        # Apply policy upon exception caught in the context
+        if exc_type is not None and self._config.on_error == OnErrorPolicy.Delete:
+            self._logger.error(
+                f"Sequence writer for sequence {self._name} caught exception: '{exc_value}'."
+                f"Triggering `OnErrorPolicy.Delete`."
+            )
+            # Delete the sequence
+            self._delete()
+
+        return base_exit_ret  # Preserve base behavior on exception suppression
+
+    def _delete(self):
+        """Internal: Sends Delete command (Delete policy)."""
+        if self._status != SequenceStatus.Finalized:
+            try:
+                _do_action(
+                    client=self._control_client,
+                    action=FlightAction.SEQUENCE_DELETE,
+                    payload={
+                        "locator": self._name,
+                    },
+                    expected_type=None,
+                )
+                self._logger.info(f"Sequence '{self._name}' deleted successfully.")
+                self._status = SequenceStatus.Error
+            except Exception as e:
+                raise _make_exception(
+                    f"Error sending 'delete' for sequence '{self._name}'.",
+                    e,
+                )
 
     def topic_create(
         self,
