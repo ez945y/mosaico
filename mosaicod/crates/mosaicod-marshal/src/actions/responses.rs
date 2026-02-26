@@ -70,22 +70,22 @@ impl From<types::SequenceSystemInfo> for SequenceSystemInfo {
 }
 
 // ########
-// Notifies
+// Notifications
 // ########
 
 #[derive(Serialize, Debug)]
-pub struct ResponseNotifyItem {
+pub struct ResponseNotificationItem {
     pub name: String,
-    pub notify_type: String,
+    pub notification_type: String,
     pub msg: String,
     pub created_datetime: String,
 }
 
-impl From<types::Notify> for ResponseNotifyItem {
-    fn from(value: types::Notify) -> Self {
+impl From<types::Notification> for ResponseNotificationItem {
+    fn from(value: types::Notification) -> Self {
         Self {
             name: value.target.name().to_string(),
-            notify_type: value.notify_type.to_string(),
+            notification_type: value.notification_type.to_string(),
             msg: value.msg.unwrap_or_default(),
             created_datetime: value.created_at.to_string(),
         }
@@ -93,14 +93,14 @@ impl From<types::Notify> for ResponseNotifyItem {
 }
 
 #[derive(Serialize, Debug)]
-pub struct NotifyList {
-    pub notifies: Vec<ResponseNotifyItem>,
+pub struct NotificationList {
+    pub notifications: Vec<ResponseNotificationItem>,
 }
 
-impl From<Vec<types::Notify>> for NotifyList {
-    fn from(value: Vec<types::Notify>) -> Self {
+impl From<Vec<types::Notification>> for NotificationList {
+    fn from(value: Vec<types::Notification>) -> Self {
         Self {
-            notifies: value.into_iter().map(Into::into).collect(),
+            notifications: value.into_iter().map(Into::into).collect(),
         }
     }
 }
