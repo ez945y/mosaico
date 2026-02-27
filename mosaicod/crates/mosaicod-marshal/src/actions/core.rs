@@ -102,6 +102,8 @@ pub enum ActionRequest {
 
     /// Ask for the list of existing layers in the system
     LayerList(requests::Empty),
+
+    ServerVersion(requests::Empty),
 }
 
 /// Internal macro used to parse action requests
@@ -139,6 +141,8 @@ impl ActionRequest {
 
             "query" => parse_action_req!(Query, body),
 
+            "version" => parse_action_req!(ServerVersion, body),
+
             _ => Err(ActionError::MissingAction(value.to_owned())),
         }
     }
@@ -168,6 +172,8 @@ pub enum ActionResponse {
     LayerList(responses::LayerList),
 
     Query(responses::Query),
+
+    ServerVersion(responses::ServerVersion),
 
     // Empty response, no data to send
     Empty,
