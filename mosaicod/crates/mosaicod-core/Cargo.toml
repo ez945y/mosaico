@@ -14,5 +14,7 @@ rand = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-bytes = { workspace = true }
 thiserror = { workspace = true }
+crc32fast = { workspace = true }
+bytes = { workspace = true }
+

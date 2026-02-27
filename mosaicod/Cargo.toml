@@ -53,7 +53,8 @@ thiserror = "2.0.18"
 tokio = { version = "1.47.1", features = ["rt-multi-thread"] }
 tonic = { version = "0.14.3", features = ["tls-ring"] }
 url = "2.5.8"
-uuid = "1.21.0"
+uuid = { version = "1.21.0", features = [ "v4" ] }
+crc32fast = "1.5.0"
 
 [profile.release]
 strip = true          # Strip symbols from binary
