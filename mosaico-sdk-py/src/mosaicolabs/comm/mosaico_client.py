@@ -63,7 +63,7 @@ class MosaicoClient:
     # --- Private Sentinel Value ---
     # Used to ensure the constructor is only called via the `connect()` factory.
     _CONNECT_SENTINEL = object()
-    _MOSAICO_TLS_CERT_ENV_VAR: str = "MOSAICOD_TLS_CERT_FILE"
+    _MOSAICO_TLS_CERT_ENV_VAR: str = "MOSAICO_TLS_CERT_FILE"
 
     def __init__(
         self,
@@ -159,7 +159,7 @@ class MosaicoClient:
         host: str,
         port: int,
         timeout: int = 5,
-        enable_tls: bool = False,
+        tls_cert_path: Optional[str] = None,
     ) -> "MosaicoClient":
         """
         The primary entry point to the Mosaico Data Platform.
@@ -180,7 +180,7 @@ class MosaicoClient:
             port (int): The server port (e.g., 6726).
             timeout (int): Maximum time in seconds to wait for a connection response.
                 Defaults to 5.
-            enable_tls (bool): Whether to enable TLS encryption. Defaults to False.
+            tls_cert_path (Optional[str]): Path to the TLS certificate file. Defaults to None.
 
         Returns:
             MosaicoClient: An initialized and connected client ready for operations.
@@ -203,9 +203,7 @@ class MosaicoClient:
         # Establish the Control Connection
         logger.debug(f"Opening a connection '{host}:{port}'")
 
-        resolved_tls_cert = (
-            None if not enable_tls else cls._resolve_tls_cert_path()
-        )
+        resolved_tls_cert = cls._resolve_tls_cert_path(tls_cert_path)
 
         try:
             control_client: fl.FlightClient = _get_connection(
@@ -229,6 +227,42 @@ class MosaicoClient:
             executor_pool=None,
             sentinel=cls._CONNECT_SENTINEL,
             tls_cert=resolved_tls_cert,
+        )
+
+    @classmethod
+    def from_env(cls, host: str, port: int) -> "MosaicoClient":
+        """
+        Creates a MosaicoClient instance by resolving configuration from environment variables.
+
+        This method acts as a smart constructor that automatically discovers system
+        settings. It currently focuses on security configurations, specifically
+        resolving TLS settings if the required environment variables are present.
+
+        As the SDK evolves, this method will be expanded to automatically detect
+        additional parameters from the environment.
+
+        Args:
+            host (str): The server hostname or IP address.
+            port (int): The port number of the Mosaico service.
+
+        Returns:
+            MosaicoClient: A client instance pre-configured with discovered settings.
+            If no specific environment variables are found, it returns a
+            client with default settings.
+
+        Example:
+            ``` python
+                # If MOSAICOD_TLS_CERT_FILE is set in the shell:
+                client = MosaicoClient.from_env("localhost", 6276)
+            ```
+        """
+
+        return cls.connect(
+            host,
+            port,
+            tls_cert_path=os.environ.get(
+                MosaicoClient._MOSAICO_TLS_CERT_ENV_VAR
+            ),
         )
 
     # --- Context Manager Protocol ---
@@ -272,29 +306,35 @@ class MosaicoClient:
         del self._topic_handlers_cache[topic_resource_name]
 
     @staticmethod
-    def _resolve_tls_cert_path() -> Optional[bytes]:
+    def _resolve_tls_cert_path(tls_cert_path: Optional[str]) -> Optional[bytes]:
         """
         Resolves the TLS certificate path.
+
+        Args:
+            tls_cert_path (Optional[str]): Path to the TLS certificate file.
 
         Returns:
             Optional[bytes]: The contents of the TLS certificate file, or None if the path is None.
         """
-        resolved_path = os.environ.get(MosaicoClient._MOSAICO_TLS_CERT_ENV_VAR)
-        logger.debug(f"Resolving Mosaico tls certificate path {resolved_path}")
 
-        if resolved_path is None:
+        logger.debug(f"Resolving Mosaico tls certificate path {tls_cert_path}")
+
+        if tls_cert_path is None:
             return None
 
+        if not tls_cert_path:
+            raise ValueError("tls_cert_path cannot be empty")
+
         try:
-            with open(resolved_path, "rb") as cert_file:
+            with open(tls_cert_path, "rb") as cert_file:
                 return cert_file.read()
         except FileNotFoundError:
             raise FileNotFoundError(
-                f"tls certificate path '{resolved_path}' does not exist"
+                f"tls certificate path '{tls_cert_path}' does not exist"
             )
         except OSError as e:
             raise ValueError(
-                f"Failed to read tls certificate from {resolved_path}: {e}"
+                f"Failed to read tls certificate from {tls_cert_path}: {e}"
             )
 
     # --- Handler Factory Methods ---

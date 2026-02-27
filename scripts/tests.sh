@@ -200,7 +200,7 @@ run_integration_tests() {
     title "running integration tests" "." "${BLUE}"
     cd "${PYTHON_SDK_PATH}"
 
-    poetry run pytest ./src/testing -k "integration"
+    poetry run pytest ./src/testing -k "integration and not test_tls_connections"
 }
 
 # Run integration tests
@@ -226,6 +226,7 @@ run_integration_with_tls_tests() {
 
     export MOSAICOD_TLS_CERT_FILE
     export MOSAICOD_TLS_PRIVATE_KEY_FILE
+    export MOSAICO_TLS_CERT_FILE="$MOSAICOD_TLS_CERT_FILE"
 
     ./target/debug/mosaicod run --port 6276 --local-store "${TEST_DIRECTORY}" --tls > "${MOSAICOD_OUTPUT}" 2>&1 &
     MOSAICOD_PID=$!
