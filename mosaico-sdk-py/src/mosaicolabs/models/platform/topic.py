@@ -76,6 +76,7 @@ class Topic(PlatformBase):
     _sequence_name: str = PrivateAttr()
     _ontology_tag: str = PrivateAttr()
     _serialization_format: str = PrivateAttr()
+    _is_locked: bool = PrivateAttr(default=False)
     _chunks_number: Optional[int] = PrivateAttr(default=None)
 
     # --- Factory Method ---
@@ -109,7 +110,6 @@ class Topic(PlatformBase):
         instance._init_base_private(
             name=name,
             created_datetime=sys_info.created_datetime,
-            is_locked=sys_info.is_locked,
             total_size_bytes=sys_info.total_size_bytes,
         )
 
@@ -118,6 +118,7 @@ class Topic(PlatformBase):
         instance._ontology_tag = metadata.properties.ontology_tag
         instance._serialization_format = metadata.properties.serialization_format
         instance._chunks_number = sys_info.chunks_number
+        instance._is_locked = sys_info.is_locked
 
         return instance
 
@@ -205,3 +206,16 @@ class Topic(PlatformBase):
         The `serialization_format` property is not queryable.
         """
         return self._serialization_format
+
+    @property
+    def is_locked(self) -> bool:
+        """
+        Indicates if the topic resource is locked on the server.
+
+        A locked state typically occurs after data writing is completed,
+        preventing structural modifications.
+
+        ### Querying with **Query Builders**
+        The `is_locked` property is not queryable.
+        """
+        return self._is_locked

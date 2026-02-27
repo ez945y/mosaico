@@ -288,19 +288,6 @@ class SequenceHandler:
         return self._sequence._created_datetime
 
     @property
-    def is_locked(self) -> bool:
-        """
-        Indicates if the resource is currently locked.
-
-        A locked state typically occurs during active writing or maintenance operations,
-        preventing deletion or structural modifications.
-
-        Returns:
-            The lock status of the sequence.
-        """
-        return self._sequence._is_locked
-
-    @property
     def total_size_bytes(self) -> int:
         """
         The total physical storage footprint of the entity on the server in bytes.
@@ -505,7 +492,8 @@ class SequenceHandler:
             RuntimeError is raised.
 
         Args:
-            on_error (OnErrorPolicy): Behavior on write failure. Defaults to `Delete`.
+            on_error (OnErrorPolicy): Behavior on write failure. Defaults to
+                [`OnErrorPolicy.Report`][mosaicolabs.enum.OnErrorPolicy.Report].
             max_batch_size_bytes (Optional[int]): Max bytes per Arrow batch.
             max_batch_size_records (Optional[int]): Max records per Arrow batch.
 
@@ -516,7 +504,7 @@ class SequenceHandler:
             RuntimeError: If the method is called outside a `with` context.
             Exception: If any error occurs during sequence injection.
 
-         Example:
+        Example:
             ```python
             from mosaicolabs import MosaicoClient, OnErrorPolicy
 
@@ -538,7 +526,6 @@ class SequenceHandler:
             1. See also:
                 * [`SequenceUpdater.topic_create()`][mosaicolabs.handlers.SequenceUpdater.topic_create]
                 * [`TopicWriter.push()`][mosaicolabs.handlers.TopicWriter.push]
-
         """
 
         # Use defaults if specific batch sizes aren't provided
@@ -568,6 +555,13 @@ class SequenceHandler:
     def reload(self) -> bool:
         """
         Reloads the handler's data from the server.
+        Use this method when you need to retrieve the latest sequence information,
+        e.g. after a [sequence update][mosaicolabs.handlers.SequenceHandler.update].
+
+        Note:
+            This method does not close any active topic handlers or data streamers.
+            The function does not affect actual sequence data-streams. Therefore,
+            it is safe to call this method multiple times without closing any active resources.
 
         Returns:
             bool: True if the reload was successful, False otherwise.
@@ -582,10 +576,14 @@ class SequenceHandler:
                 if seq_handler:
                     # Perform operations, typically updating the sequence on the server
                     # ...
+                    # (1)!
 
                     # Refresh the handler's data from the server
-                    seq_handler.reload()
+                    if not seq_handler.reload():
+                        print("Failed to reload sequence handler")
             ```
+
+            1. See also: [`SequenceUpdater`][mosaicolabs.handlers.SequenceUpdater]
         """
         return self._reload()
 

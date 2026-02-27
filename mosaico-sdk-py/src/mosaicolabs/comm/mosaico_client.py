@@ -380,7 +380,8 @@ class MosaicoClient:
         Args:
             sequence_name (str): Unique name for the sequence.
             metadata (dict[str, Any]): User-defined metadata to attach.
-            on_error (OnErrorPolicy): Behavior on write failure. Defaults to `Delete`.
+            on_error (OnErrorPolicy): Behavior on write failure. Defaults to
+                [`OnErrorPolicy.Report`][mosaicolabs.enum.OnErrorPolicy.Report].
             max_batch_size_bytes (Optional[int]): Max bytes per Arrow batch.
             max_batch_size_records (Optional[int]): Max records per Arrow batch.
 

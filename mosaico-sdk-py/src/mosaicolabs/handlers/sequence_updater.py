@@ -9,12 +9,11 @@ and distributes client resources (Connections, Executors) to individual Topics.
 from typing import Any, Optional, Type
 import pyarrow.flight as fl
 
-from .base_session_writer import BaseSessionWriter
+from .base_session_writer import _BaseSessionWriter
 from .config import WriterConfig
 from .topic_writer import TopicWriter
 from ..comm.connection import _ConnectionPool
 from ..comm.executor_pool import _ExecutorPool
-from ..enum import SequenceStatus
 from ..logging_config import get_logger
 from ..models import Serializable
 
@@ -22,7 +21,7 @@ from ..models import Serializable
 logger = get_logger(__name__)
 
 
-class SequenceUpdater(BaseSessionWriter):
+class SequenceUpdater(_BaseSessionWriter):
     """
     Orchestrates the sequence update and related data ingestion lifecycle of a Mosaico Sequence.
 
@@ -206,13 +205,3 @@ class SequenceUpdater(BaseSessionWriter):
             metadata=metadata,
             ontology_type=ontology_type,
         )
-
-    @property
-    def status(self) -> SequenceStatus:
-        """
-        Returns the current operational status of the sequence.
-
-        Returns:
-            The [`SequenceStatus`][mosaicolabs.enum.SequenceStatus].
-        """
-        return self._status

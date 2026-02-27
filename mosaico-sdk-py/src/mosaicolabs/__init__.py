@@ -24,6 +24,7 @@ from .handlers import (
     TopicHandler as TopicHandler,
     TopicWriter as TopicWriter,
     TopicDataStreamer as TopicDataStreamer,
+    SequenceUpdater as SequenceUpdater,
     SystemInfo as SystemInfo,
 )
 
@@ -134,6 +135,7 @@ __all__ = [
     "SequenceHandler",
     "SequenceWriter",
     "SequenceDataStreamer",
+    "SequenceUpdater",
     "TopicHandler",
     "TopicWriter",
     "TopicDataStreamer",

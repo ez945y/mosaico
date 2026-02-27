@@ -71,7 +71,8 @@ def test_sequence_writer_not_in_context(_client: MosaicoClient):
     )
     assert swriter.status == SequenceStatus.Null
     with pytest.raises(
-        RuntimeError, match="BaseSessionWriter must be used within a 'with' block."
+        RuntimeError,
+        match="SequenceWriter or SequenceUpdater must be used within a 'with' block.",
     ):
         swriter._check_entered()
 

@@ -87,7 +87,7 @@ class Sequence(PlatformBase):
         Args:
             name: The unique name of the sequence.
             metadata: Decoded sequence metadata containing user properties.
-            sys_info: System diagnostic information (size, lock status, dates).
+            sys_info: System diagnostic information (size, dates).
             topics: A list of string names for all topics contained in the sequence.
 
         Returns:
@@ -101,7 +101,6 @@ class Sequence(PlatformBase):
         instance._init_base_private(
             name=name,
             created_datetime=sys_info.created_datetime,
-            is_locked=sys_info.is_locked,
             total_size_bytes=sys_info.total_size_bytes,
         )
 

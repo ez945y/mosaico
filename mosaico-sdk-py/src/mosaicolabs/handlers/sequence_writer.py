@@ -9,7 +9,7 @@ and distributes client resources (Connections, Executors) to individual Topics.
 from typing import Any, Optional, Type
 import pyarrow.flight as fl
 
-from .base_session_writer import BaseSessionWriter
+from .base_session_writer import _BaseSessionWriter
 from .config import WriterConfig
 from .helpers import _validate_sequence_name, _make_exception, _validate_metadata
 from .topic_writer import TopicWriter
@@ -25,7 +25,7 @@ from ..enum import OnErrorPolicy
 logger = get_logger(__name__)
 
 
-class SequenceWriter(BaseSessionWriter):
+class SequenceWriter(_BaseSessionWriter):
     """
     Orchestrates the creation and data ingestion lifecycle of a Mosaico Sequence.
 
