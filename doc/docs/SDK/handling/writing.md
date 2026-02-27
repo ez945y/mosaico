@@ -44,7 +44,7 @@ with MosaicoClient.connect("localhost", 6726) as client:
                 "experience_level": "senior",
             },
         }
-        on_error = OnErrorPolicy.Delete # Default
+        on_error = OnErrorPolicy.Delete
         ) as seq_writer:
 
         # `seq_writer` is the writing handler of the new 'mission_log_042' sequence

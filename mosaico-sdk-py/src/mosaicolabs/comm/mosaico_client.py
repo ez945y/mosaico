@@ -120,6 +120,10 @@ class MosaicoClient:
 
     def _init_pools(self):
         """Initialize Connection and Executor pools"""
+        self._get_connection_pool()
+        self._get_executor_pool()
+
+    def _get_connection_pool(self) -> _ConnectionPool:
         try:
             # Attempt to create the connection pool. We use os.cpu_count()
             # as a heuristic for the optimal pool size.
@@ -130,15 +134,23 @@ class MosaicoClient:
                     pool_size=os.cpu_count(),
                     timeout=self._timeout,
                 )
+
+            return self._connection_pool
+
         except Exception as e:
             raise ConnectionError(
                 f"Exception while initializing Connection pool.\nInner err. '{e}'"
             )
 
+    def _get_executor_pool(self) -> _ExecutorPool:
         try:
-            # Attempt to create the executor pool.
+            # Attempt to create the executor pool. We use os.cpu_count()
+            # as a heuristic for the optimal pool size.
             if self._executor_pool is None:
                 self._executor_pool = _ExecutorPool(pool_size=os.cpu_count())
+
+            return self._executor_pool
+
         except Exception as e:
             raise Exception(
                 f"Exception while initializing Executor pool.\nInner err. '{e}'"
@@ -289,6 +301,8 @@ class MosaicoClient:
             sh = SequenceHandler._connect(
                 sequence_name=sequence_name,
                 client=self._control_client,
+                connection_pool_allocator=self._get_connection_pool,
+                executor_pool_allocator=self._get_executor_pool,
             )
             if not sh:
                 return None
@@ -352,7 +366,7 @@ class MosaicoClient:
         self,
         sequence_name: str,
         metadata: dict[str, Any],
-        on_error: OnErrorPolicy = OnErrorPolicy.Delete,
+        on_error: OnErrorPolicy = OnErrorPolicy.Report,
         max_batch_size_bytes: Optional[int] = None,
         max_batch_size_records: Optional[int] = None,
     ) -> SequenceWriter:
@@ -403,7 +417,7 @@ class MosaicoClient:
                             },
                         },
                     }
-                    on_error = OnErrorPolicy.Delete # Default
+                    on_error = OnErrorPolicy.Delete
                     ) as seq_writer:
                         # Start creating topics and pushing data...
                         # (1)!

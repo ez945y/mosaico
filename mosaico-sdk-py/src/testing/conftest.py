@@ -97,6 +97,7 @@ def _make_sequence_data_stream(host, port):
     _client.close()
     return SequenceDataStream(
         items=items,
+        dt_nanosec=dt_nanosec,
         tstamp_ns_start=items[0].msg.timestamp_ns,
         tstamp_ns_end=items[-1].msg.timestamp_ns,
     )

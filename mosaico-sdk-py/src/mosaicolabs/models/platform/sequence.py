@@ -5,7 +5,7 @@ This module defines the `Sequence` class, which represents a read-only view of a
 Sequence's metadata. A Sequence is a logical grouping of multiple Topics.
 """
 
-from typing import Any, List
+from typing import Any, Dict, List
 from pydantic import PrivateAttr
 
 
@@ -79,7 +79,7 @@ class Sequence(PlatformBase):
     # --- Factory Method ---
     @classmethod
     def _from_flight_info(
-        cls, name: str, metadata: Any, sys_info: Any, topics: List[str]
+        cls, name: str, metadata: Dict[str, Any], sys_info: Any, topics: List[str]
     ) -> "Sequence":
         """
         Internal factory method to construct a Sequence model from Flight protocol objects.
@@ -94,7 +94,7 @@ class Sequence(PlatformBase):
             A read-only `Sequence` model instance.
         """
         instance = cls(
-            user_metadata=metadata.user_metadata,
+            user_metadata=metadata,
         )
 
         # Set private attributes explicitly

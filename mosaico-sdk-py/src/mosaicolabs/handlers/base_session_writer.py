@@ -12,7 +12,11 @@ import pyarrow.flight as fl
 from logging import Logger
 
 from mosaicolabs.handlers.config import WriterConfig
-from mosaicolabs.handlers.helpers import _make_exception, _validate_topic_name
+from mosaicolabs.handlers.helpers import (
+    _make_exception,
+    _validate_topic_name,
+    _validate_metadata,
+)
 from mosaicolabs.handlers.topic_writer import TopicWriter
 from mosaicolabs.comm.do_action import _do_action, _DoActionResponseUUID
 from mosaicolabs.comm.connection import _ConnectionPool
@@ -278,6 +282,9 @@ class BaseSessionWriter(ABC):
         [`TopicWriter`][mosaicolabs.handlers.TopicWriter], its own connection from the pool
         and a dedicated executor for background serialization and I/O.
 
+        Note:
+            The class verifies that the topic name is valid and that the metadata is valid (i.e. it is a dict).
+
         Args:
             topic_name: The relative name of the new topic.
             metadata: Topic-specific user metadata.
@@ -297,6 +304,7 @@ class BaseSessionWriter(ABC):
             return None
 
         _validate_topic_name(topic_name)
+        _validate_metadata(metadata)
 
         self._logger.debug(
             f"Requesting new topic '{topic_name}' for sequence '{self._name}'"

@@ -6,17 +6,27 @@ for an *existing* sequence. It allows users to inspect metadata, list topics,
 and access reading interfaces (`SequenceDataStreamer`).
 """
 
+from typing import Callable
 import datetime
 import json
 import pyarrow.flight as fl
 from typing import Dict, Any, List, Optional, Tuple
 
+from .config import WriterConfig
 from .endpoints import TopicParsingError, TopicResourceManifest
 from .sequence_reader import SequenceDataStreamer
+from .sequence_updater import SequenceUpdater
 from .topic_handler import TopicHandler
 from ..comm.metadata import SequenceMetadata, _decode_metadata
 from ..comm.do_action import _do_action, _DoActionResponseSysInfo
-from ..enum import FlightAction
+from ..comm.connection import _ConnectionPool
+from ..comm.executor_pool import _ExecutorPool
+from ..comm.connection import (
+    DEFAULT_MAX_BATCH_BYTES,
+    DEFAULT_MAX_BATCH_SIZE_RECORDS,
+)
+
+from ..enum import FlightAction, OnErrorPolicy
 from ..models.platform import Sequence
 from ..helpers import sanitize_sequence_name
 from ..logging_config import get_logger
@@ -45,6 +55,8 @@ class SequenceHandler:
         *,
         sequence_model: Sequence,
         client: fl.FlightClient,
+        connection_pool_allocator: Callable[[], _ConnectionPool],
+        executor_pool_allocator: Callable[[], _ExecutorPool],
         timestamp_ns_min: Optional[int],
         timestamp_ns_max: Optional[int],
     ):
@@ -73,10 +85,22 @@ class SequenceHandler:
         """Lowest timestamp [ns] in the sequence (among all the topics)"""
         self._timestamp_ns_max: Optional[int] = timestamp_ns_max
         """Highest timestamp [ns] in the sequence (among all the topics)"""
+        self._connection_pool_allocator: Callable[[], _ConnectionPool] = (
+            connection_pool_allocator
+        )
+        """Allocator for connection pools"""
+        self._executor_pool_allocator: Callable[[], _ExecutorPool] = (
+            executor_pool_allocator
+        )
+        """Allocator for executor pools"""
 
     @classmethod
     def _connect(
-        cls, sequence_name: str, client: fl.FlightClient
+        cls,
+        sequence_name: str,
+        client: fl.FlightClient,
+        connection_pool_allocator: Callable[[], _ConnectionPool],
+        executor_pool_allocator: Callable[[], _ExecutorPool],
     ) -> Optional["SequenceHandler"]:
         """
         Internal factory method to create a handler.
@@ -143,7 +167,7 @@ class SequenceHandler:
 
         sequence_model = Sequence._from_flight_info(
             name=_stzd_sequence_name,
-            metadata=seq_metadata,
+            metadata=seq_metadata.user_metadata,
             sys_info=act_resp,
             topics=stopics,
         )
@@ -151,9 +175,76 @@ class SequenceHandler:
         return cls(
             sequence_model=sequence_model,
             client=client,
+            connection_pool_allocator=connection_pool_allocator,
+            executor_pool_allocator=executor_pool_allocator,
             timestamp_ns_min=min(tstamps_ns_min) if tstamps_ns_min else None,
             timestamp_ns_max=max(tstamps_ns_max) if tstamps_ns_max else None,
         )
+
+    def _reload(self) -> bool:
+        """
+        Reloads the sequence handler with the latest data from the server.
+
+        Returns:
+            bool: True if the reload was successful, False otherwise.
+        """
+
+        # Regain FlightInfo
+        try:
+            flight_info, _stzd_sequence_name = self._get_flight_info(
+                client=self._fl_client, sequence_name=self._sequence.name
+            )
+        except Exception as e:
+            logger.error(
+                f"Server error (get_flight_info) while asking for Sequence descriptor, '{e}'"
+            )
+            return False
+
+        # Metadata are not changed
+
+        # Extract the Topics resource manifests data
+        stopics = []
+        tstamps_ns_min = []
+        tstamps_ns_max = []
+        for ep in flight_info.endpoints:
+            try:
+                topic_resrc_mdata = TopicResourceManifest.from_flight_endpoint(ep)
+            except TopicParsingError as e:
+                logger.error(f"Skipping invalid topic endpoint, err: '{e}'")
+                continue
+            stopics.append(topic_resrc_mdata.topic_name)
+            # Collect the 'min'/'max' timestamps, as we are at a sequence-level
+            if (
+                topic_resrc_mdata.timestamp_ns_min is not None
+                and topic_resrc_mdata.timestamp_ns_max is not None
+            ):
+                tstamps_ns_min.append(topic_resrc_mdata.timestamp_ns_min)
+                tstamps_ns_max.append(topic_resrc_mdata.timestamp_ns_max)
+
+        # Get System Info
+        ACTION = FlightAction.SEQUENCE_SYSTEM_INFO
+        act_resp = _do_action(
+            client=self._fl_client,
+            action=ACTION,
+            payload={"locator": _stzd_sequence_name},
+            expected_type=_DoActionResponseSysInfo,
+        )
+
+        if act_resp is None:
+            logger.error(f"Action '{ACTION}' returned no response.")
+            return False
+
+        self._sequence = Sequence._from_flight_info(
+            name=_stzd_sequence_name,
+            metadata=self.user_metadata,
+            sys_info=act_resp,
+            topics=stopics,
+        )
+
+        self._timestamp_ns_min = min(tstamps_ns_min) if tstamps_ns_min else None
+        self._timestamp_ns_max = max(tstamps_ns_max) if tstamps_ns_max else None
+
+        return True
 
     # -------------------- Public methods --------------------
     @property
@@ -399,6 +490,104 @@ class SequenceHandler:
             self._topic_handler_instances[topic_name] = th
 
         return th
+
+    def update(
+        self,
+        on_error: OnErrorPolicy = OnErrorPolicy.Report,
+        max_batch_size_bytes: Optional[int] = None,
+        max_batch_size_records: Optional[int] = None,
+    ) -> SequenceUpdater:
+        """
+        Update the sequence on the platform and returns a [`SequenceUpdater`][mosaicolabs.handlers.SequenceUpdater] for ingestion.
+
+        Important:
+            The function **must** be called inside a with context, otherwise a
+            RuntimeError is raised.
+
+        Args:
+            on_error (OnErrorPolicy): Behavior on write failure. Defaults to `Delete`.
+            max_batch_size_bytes (Optional[int]): Max bytes per Arrow batch.
+            max_batch_size_records (Optional[int]): Max records per Arrow batch.
+
+        Returns:
+            SequenceUpdater: An initialized updater instance.
+
+        Raises:
+            RuntimeError: If the method is called outside a `with` context.
+            Exception: If any error occurs during sequence injection.
+
+         Example:
+            ```python
+            from mosaicolabs import MosaicoClient, OnErrorPolicy
+
+            # Open the connection with the Mosaico Client
+            with MosaicoClient.connect("localhost", 6726) as client:
+                # Get the handler for the sequence
+                seq_handler = client.sequence_handler("mission_log_042")
+                # Update the sequence
+                with seq_handler.update(
+                    on_error = OnErrorPolicy.Delete
+                    ) as seq_updater:
+                        # Start creating topics and pushing data
+                        # (1)!
+
+                # Exiting the block automatically flushes all topic buffers, finalizes the sequence on the server
+                # and closes all connections and pools
+            ```
+
+            1. See also:
+                * [`SequenceUpdater.topic_create()`][mosaicolabs.handlers.SequenceUpdater.topic_create]
+                * [`TopicWriter.push()`][mosaicolabs.handlers.TopicWriter.push]
+
+        """
+
+        # Use defaults if specific batch sizes aren't provided
+        max_batch_size_bytes = (
+            max_batch_size_bytes
+            if max_batch_size_bytes is not None
+            else DEFAULT_MAX_BATCH_BYTES
+        )
+        max_batch_size_records = (
+            max_batch_size_records
+            if max_batch_size_records is not None
+            else DEFAULT_MAX_BATCH_SIZE_RECORDS
+        )
+
+        return SequenceUpdater(
+            sequence_name=self._sequence.name,
+            client=self._fl_client,
+            connection_pool=self._connection_pool_allocator(),
+            executor_pool=self._executor_pool_allocator(),
+            config=WriterConfig(
+                on_error=on_error,
+                max_batch_size_bytes=max_batch_size_bytes,
+                max_batch_size_records=max_batch_size_records,
+            ),
+        )
+
+    def reload(self) -> bool:
+        """
+        Reloads the handler's data from the server.
+
+        Returns:
+            bool: True if the reload was successful, False otherwise.
+
+        Example:
+            ```python
+            from mosaicolabs import MosaicoClient
+
+            with MosaicoClient.connect("localhost", 6726) as client:
+                # Use a Handler to inspect the catalog
+                seq_handler = client.sequence_handler("mission_alpha")
+                if seq_handler:
+                    # Perform operations, typically updating the sequence on the server
+                    # ...
+
+                    # Refresh the handler's data from the server
+                    seq_handler.reload()
+            ```
+        """
+        return self._reload()
 
     def close(self):
         """
