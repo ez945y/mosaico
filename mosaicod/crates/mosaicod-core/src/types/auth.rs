@@ -232,8 +232,7 @@ impl BitOr for Permission {
 /// * an API Key like `msco:0938n8b37r378brf`
 /// * the associated permissions (like: read, write, ..)
 /// * a description to keep track of the purpose of the key
-pub struct ApiKeyScope {
-    /// Val
+pub struct AuthScope {
     key: ApiKey,
 
     /// Permissions associated with the scope
@@ -243,7 +242,7 @@ pub struct ApiKeyScope {
     pub description: String,
 }
 
-impl ApiKeyScope {
+impl AuthScope {
     /// Create a new API key scope
     ///
     /// # Example
