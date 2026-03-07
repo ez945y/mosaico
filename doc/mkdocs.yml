@@ -121,6 +121,9 @@ extra_css:
 
 extra:
   generator: false
+  version:
+    provider: mike
+    default: latest
 
 theme:
   logo: assets/mosaico_logomark.svg
